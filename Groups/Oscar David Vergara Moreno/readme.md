@@ -7,7 +7,7 @@
 
 ---
 
-## 🚀 Guía Rápida de Iniciación (Cómo probar el proyecto)
+## Guía Rápida de Iniciación (Cómo probar el proyecto)
 
 Si quieres ejecutar este laboratorio en tu computadora y ver las gráficas de rendimiento, sigue estos pasos desde la terminal:
 
