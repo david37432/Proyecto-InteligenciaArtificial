@@ -11,9 +11,7 @@
 Para el desarrollo de este reto, la arquitectura del agente se pensó desde el inicio para aportar una perspectiva metodológica e independiente a las soluciones convencionales, garantizando una propuesta autónoma y original en el equipo de trabajo:
 
 * **Diferenciación Técnica:** A diferencia de los enfoques tradicionales que concentran el conocimiento experto en optimizar la fase final de *Simulación (Rollout)* mediante funciones de evaluación pesadas, **mi propuesta ataca directamente las fases tempranas de Selección y Expansión en la raíz del árbol**.
-* **Aporte Algorítmico:** Modifiqué la ecuación convencional de UCB1 para inyectar un término de **Sesgo Q-Value** ($Q_{\text{prior}}$). La fórmula de selección se calcula en cada nodo de la siguiente manera:
-
-$$\text{UCB}(s, a) = \frac{W_i}{N_i} + c \cdot \sqrt{\frac{\ln(N_p)}{N_i}} + \frac{Q(s, a)}{N_i}$$
+* **Aporte Algorítmico:** Modifiqué la ecuación convencional de UCB1 para inyectar un término de **Sesgo Q-Value** ($Q_{\text{prior}}$)
 
 El término $\frac{Q(s, a)}{N_i}$ actúa como una guía táctica instantánea de conocimiento preexistente (*prior*). Cuando un nodo tiene muy pocas visitas ($N_i$ es bajo), la estimación posicional heurística predomina y obliga al algoritmo a explorar caminos lógicos, evitando desperdiciar presupuesto en ramas subóptimas. A medida que el nodo es explotado y acumula simulaciones reales ($N_i \to \infty$), el peso del sesgo decae asintóticamente y las estadísticas empíricas del MCTS toman el control absoluto de la decisión.
 
