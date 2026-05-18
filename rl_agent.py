@@ -1,111 +1,275 @@
 # rl_agent.py
-# Agente basado en Q-Learning con auto-juego (Cross-MDP Policy Iteration)
-# Fundamento teórico: Diapositiva 12 - Competitive MDPs, curso FIA 2026.1
+# Agente Q-Learning + Alpha-Beta Minimax (Cross-MDP Policy Iteration)
+# Fundamento teorico: Diapositiva 12 - Competitive MDPs, curso FIA 2026.1
+#
+# La funcion de evaluacion V(s) = w * psi(s) se aprende offline via Q-learning.
+# Durante el juego, Alpha-Beta explota esa funcion buscando 4 niveles profundo,
+# detectando tacticas (forks, dobles amenazas) que el lookup plano no podia ver.
 
 import numpy as np
 import random
 import pickle
 import os
 from connect4.policy import Policy
-from connect4.connect_state import ConnectState
 
 ROWS = 6
 COLS = 7
 CENTER_COL = 3
+N_FEATURES = 8
+INF = float('inf')
+
+# Pesos de columna: centro vale mas
+_CW = np.array([0, 1, 2, 3, 2, 1, 0], dtype=float)
 
 
 class QLearningAgent(Policy):
     """
-    Agente de Q-Learning con auto-juego basado en el marco de
-    Competitive MDPs (Alternating Markov Games) visto en clase.
+    Agente de Q-Learning con funcion de evaluacion aprendida + Alpha-Beta Minimax.
 
-    Fase offline: aprende jugando contra sí mismo (Cross-MDP self-play).
-    Fase online: actúa greedily usando los pesos aprendidos.
+    Fase offline: Q-learning con self-play (Cross-MDP) aprende pesos w para V(s)=w*psi(s).
+    Fase online:  Alpha-Beta profundidad 4 usa V(s) como heuristica de hoja.
 
-    La Q-function se aproxima con una combinación lineal de features:
-      Q(s, a) ≈ w · φ(s, a)
+    Diferencia clave respecto a MCTS: la evaluacion es APRENDIDA, no aleatoria.
     """
 
     def __init__(self,
                  player: int = -1,
                  alpha: float = 0.01,
                  gamma: float = 1.0,
-                 epsilon: float = 0.2,
+                 epsilon: float = 0.3,       # epsilon inicial (decae durante entrenamiento)
+                 epsilon_end: float = 0.05,   # epsilon final
                  n_episodes: int = 5000,
+                 search_depth: int = 4,       # profundidad alpha-beta
                  weights_file: str = None):
         self.player = player
         self.alpha = alpha
         self.gamma = gamma
-        self.epsilon = epsilon
+        self.epsilon_start = epsilon
+        self.epsilon_end = epsilon_end
         self.n_episodes = n_episodes
+        self.search_depth = search_depth
         self.weights_file = weights_file
         self.weights = None
 
     def mount(self, *args, **kwargs) -> None:
-        n_features = 8
-
         if self.weights_file and os.path.exists(self.weights_file):
             with open(self.weights_file, 'rb') as f:
                 self.weights = pickle.load(f)
         else:
-            self.weights = np.zeros(n_features)
+            self.weights = np.zeros(N_FEATURES)
             self._train()
             if self.weights_file:
                 with open(self.weights_file, 'wb') as f:
                     pickle.dump(self.weights, f)
 
-    def act(self, s: np.ndarray) -> int:
-        free_cols = [c for c in range(COLS) if s[0, c] == 0]
-        if not free_cols:
-            return 3
+    # ------------------------------------------------------------------ #
+    #  ACCION ONLINE (Alpha-Beta + evaluacion aprendida)
+    # ------------------------------------------------------------------ #
 
-        # Detectar victoria inmediata
-        for col in free_cols:
+    def act(self, s: np.ndarray) -> int:
+        free = [c for c in range(COLS) if s[0, c] == 0]
+        if not free:
+            return CENTER_COL
+
+        # Ganar inmediatamente si es posible
+        for col in free:
             if self._is_winning_move(s, col, self.player):
                 return col
 
-        # Detectar bloqueo inmediato
-        for col in free_cols:
+        # Bloquear victoria inmediata del oponente
+        for col in free:
             if self._is_winning_move(s, col, -self.player):
                 return col
 
-        # Greedy sobre Q-values aprendidos
-        if self.weights is not None:
-            q_values = [self._q_value(s, col, self.player) for col in free_cols]
-            best_col = free_cols[np.argmax(q_values)]
-            return best_col
+        # Alpha-Beta con funcion de evaluacion aprendida
+        best_col = min(free, key=lambda c: abs(c - CENTER_COL))
+        best_val = -INF
+        alpha = -INF
 
-        return random.choice(free_cols)
+        for col in self._order_moves(s, free, self.player):
+            child = self._apply_move(s, col, self.player)
+            val = self._alphabeta(child, self.search_depth - 1, alpha, INF, maximizing=False)
+            if val > best_val:
+                best_val = val
+                best_col = col
+            alpha = max(alpha, val)
+            if best_val > 9000:   # victoria forzada encontrada
+                break
+
+        return best_col
 
     # ------------------------------------------------------------------ #
-    #  ENTRENAMIENTO (Cross-MDP Self-Play)
+    #  ALPHA-BETA MINIMAX
+    # ------------------------------------------------------------------ #
+
+    def _alphabeta(self, board: np.ndarray, depth: int,
+                   alpha: float, beta: float, maximizing: bool) -> float:
+        winner = self._check_winner(board)
+        if winner == self.player:
+            return 10000 + depth      # ganar antes es mejor
+        if winner == -self.player:
+            return -10000 - depth     # perder antes es peor
+
+        free = [c for c in range(COLS) if board[0, c] == 0]
+        if not free:
+            return 0.0                # empate
+
+        if depth == 0:
+            return self._evaluate_board(board)
+
+        current_mover = self.player if maximizing else -self.player
+        ordered = self._order_moves(board, free, current_mover)
+
+        if maximizing:
+            val = -INF
+            for col in ordered:
+                child = self._apply_move(board, col, current_mover)
+                val = max(val, self._alphabeta(child, depth - 1, alpha, beta, False))
+                alpha = max(alpha, val)
+                if alpha >= beta:
+                    break
+            return val
+        else:
+            val = INF
+            for col in ordered:
+                child = self._apply_move(board, col, current_mover)
+                val = min(val, self._alphabeta(child, depth - 1, alpha, beta, True))
+                beta = min(beta, val)
+                if alpha >= beta:
+                    break
+            return val
+
+    def _order_moves(self, board: np.ndarray, free: list, player: int) -> list:
+        """
+        Ordena movimientos para maximizar la poda alpha-beta:
+        ganadores primero → bloqueos → centro hacia afuera.
+        """
+        win_moves = [c for c in free if self._is_winning_move(board, c, player)]
+        if win_moves:
+            others = [c for c in free if c not in win_moves]
+            return win_moves + sorted(others, key=lambda c: abs(c - CENTER_COL))
+
+        block_moves = [c for c in free if self._is_winning_move(board, c, -player)]
+        rest = [c for c in free if c not in block_moves]
+        return block_moves + sorted(rest, key=lambda c: abs(c - CENTER_COL))
+
+    def _evaluate_board(self, board: np.ndarray) -> float:
+        """V(s) = w * psi(s, self.player) — heuristica de hoja aprendida."""
+        return float(np.dot(self.weights, self._board_features(board, self.player)))
+
+    # ------------------------------------------------------------------ #
+    #  FEATURES DE TABLERO (vectorizadas, 8 dimensiones)
+    # ------------------------------------------------------------------ #
+
+    def _board_features(self, board: np.ndarray, player: int) -> np.ndarray:
+        """
+        8 features rapidas (vectorizadas) desde la perspectiva de `player`.
+
+          0: amenazas propias   (ventanas 3 fichas + 1 libre)
+          1: amenazas oponente  (ventanas 3 fichas + 1 libre)
+          2: dobles propias     (ventanas 2 fichas + 2 libres)
+          3: dobles oponente
+          4: control columnas centrales (ponderado, propio)
+          5: control columnas centrales (ponderado, oponente)
+          6: piezas en fila inferior propia
+          7: bias constante
+        """
+        opp = -player
+        P = board == player   # bool (ROWS, COLS)
+        O = board == opp
+        E = board == 0
+
+        th_p = tw_p = th_o = tw_o = 0
+
+        # --- Horizontal (4 ventanas de longitud por fila, vectorizadas) ---
+        for c in range(COLS - 3):
+            wp = P[:, c].astype(int) + P[:, c+1] + P[:, c+2] + P[:, c+3]
+            wo = O[:, c].astype(int) + O[:, c+1] + O[:, c+2] + O[:, c+3]
+            we = E[:, c].astype(int) + E[:, c+1] + E[:, c+2] + E[:, c+3]
+            th_p += int(((wp == 3) & (we == 1)).sum())
+            th_o += int(((wo == 3) & (we == 1)).sum())
+            tw_p += int(((wp == 2) & (we == 2)).sum())
+            tw_o += int(((wo == 2) & (we == 2)).sum())
+
+        # --- Vertical (3 ventanas de altura por columna, vectorizadas) ---
+        for r in range(ROWS - 3):
+            wp = P[r, :].astype(int) + P[r+1, :] + P[r+2, :] + P[r+3, :]
+            wo = O[r, :].astype(int) + O[r+1, :] + O[r+2, :] + O[r+3, :]
+            we = E[r, :].astype(int) + E[r+1, :] + E[r+2, :] + E[r+3, :]
+            th_p += int(((wp == 3) & (we == 1)).sum())
+            th_o += int(((wo == 3) & (we == 1)).sum())
+            tw_p += int(((wp == 2) & (we == 2)).sum())
+            tw_o += int(((wo == 2) & (we == 2)).sum())
+
+        # --- Diagonales (12 + 12 = 24 iteraciones escalares) ---
+        for r in range(ROWS - 3):
+            for c in range(COLS - 3):
+                p = int(P[r,c])+int(P[r+1,c+1])+int(P[r+2,c+2])+int(P[r+3,c+3])
+                o = int(O[r,c])+int(O[r+1,c+1])+int(O[r+2,c+2])+int(O[r+3,c+3])
+                e = int(E[r,c])+int(E[r+1,c+1])+int(E[r+2,c+2])+int(E[r+3,c+3])
+                if p == 3 and e == 1: th_p += 1
+                if o == 3 and e == 1: th_o += 1
+                if p == 2 and e == 2: tw_p += 1
+                if o == 2 and e == 2: tw_o += 1
+
+        for r in range(ROWS - 3):
+            for c in range(3, COLS):
+                p = int(P[r,c])+int(P[r+1,c-1])+int(P[r+2,c-2])+int(P[r+3,c-3])
+                o = int(O[r,c])+int(O[r+1,c-1])+int(O[r+2,c-2])+int(O[r+3,c-3])
+                e = int(E[r,c])+int(E[r+1,c-1])+int(E[r+2,c-2])+int(E[r+3,c-3])
+                if p == 3 and e == 1: th_p += 1
+                if o == 3 and e == 1: th_o += 1
+                if p == 2 and e == 2: tw_p += 1
+                if o == 2 and e == 2: tw_o += 1
+
+        col_sums_p = P.sum(axis=0).astype(float)
+        col_sums_o = O.sum(axis=0).astype(float)
+
+        phi = np.empty(N_FEATURES)
+        phi[0] = th_p / 10.0
+        phi[1] = th_o / 10.0
+        phi[2] = tw_p / 20.0
+        phi[3] = tw_o / 20.0
+        phi[4] = float(_CW @ col_sums_p) / 42.0
+        phi[5] = float(_CW @ col_sums_o) / 42.0
+        phi[6] = float(P[ROWS - 1, :].sum()) / COLS
+        phi[7] = 1.0
+
+        return phi
+
+    # ------------------------------------------------------------------ #
+    #  ENTRENAMIENTO (Cross-MDP Self-Play con epsilon decreciente)
     # ------------------------------------------------------------------ #
 
     def _train(self):
-        """
-        Entrena mediante auto-juego (Cross-MDP Policy Iteration).
-        El agente juega ambos roles alternando y usa el truco bipolar:
-        al cambiar de turno, niega el valor futuro (×−γ).
-        """
-        for _ in range(self.n_episodes):
-            self._run_episode()
+        for ep in range(self.n_episodes):
+            t = ep / max(1, self.n_episodes - 1)
+            epsilon = self.epsilon_start * (1 - t) + self.epsilon_end * t
+            self._run_episode(epsilon)
 
-    def _run_episode(self):
+    def _run_episode(self, epsilon: float):
         board = np.zeros((ROWS, COLS), dtype=int)
         current_player = -1
-        history = []  # (board_before, col, player)
+        history = []
 
         while True:
-            free_cols = [c for c in range(COLS) if board[0, c] == 0]
-            if not free_cols:
+            free = [c for c in range(COLS) if board[0, c] == 0]
+            if not free:
                 self._update_weights_from_history(history, reward=0.0)
                 return
 
-            if random.random() < self.epsilon:
-                col = random.choice(free_cols)
+            if random.random() < epsilon:
+                col = random.choice(free)
             else:
-                q_vals = [self._q_value(board, c, current_player) for c in free_cols]
-                col = free_cols[np.argmax(q_vals)]
+                best_col, best_q = free[0], -INF
+                for c in free:
+                    new_b = self._apply_move(board, c, current_player)
+                    q = float(np.dot(self.weights,
+                                     self._board_features(new_b, current_player)))
+                    if q > best_q:
+                        best_q = q
+                        best_col = c
+                col = best_col
 
             history.append((board.copy(), col, current_player))
             board = self._apply_move(board, col, current_player)
@@ -117,116 +281,18 @@ class QLearningAgent(Policy):
 
             current_player = -current_player
 
-    def _update_weights_from_history(self, history, reward: float):
+    def _update_weights_from_history(self, history: list, reward: float):
         """
-        Propaga la recompensa hacia atrás con el truco bipolar del curso:
-        cada cambio de turno niega la recompensa (× −γ).
+        Propaga la recompensa hacia atras con el truco bipolar del curso:
+        al cambiar de turno, el valor se niega (x -gamma).
         """
         r = reward
         for board, col, player in reversed(history):
-            phi = self._extract_features(board, col, player)
-            q_current = np.dot(self.weights, phi)
-            error = r - q_current
-            self.weights += self.alpha * error * phi
-            r = -self.gamma * r  # truco bipolar
-
-    # ------------------------------------------------------------------ #
-    #  FEATURES Y Q-VALUE
-    # ------------------------------------------------------------------ #
-
-    def _q_value(self, board: np.ndarray, col: int, player: int) -> float:
-        phi = self._extract_features(board, col, player)
-        return float(np.dot(self.weights, phi))
-
-    def _extract_features(self, board: np.ndarray, col: int, player: int) -> np.ndarray:
-        """
-        Vector de 8 features que describen la calidad del movimiento (col, player).
-
-        0: victoria inmediata
-        1: bloqueo inmediato del oponente
-        2: preferencia de columna central (normalizada)
-        3: amenazas propias creadas (3 fichas + 1 libre)
-        4: amenazas del oponente bloqueadas
-        5: ventanas con 2 fichas propias + 2 libres
-        6: control de fila inferior
-        7: bias constante
-        """
-        phi = np.zeros(8)
-        row = self._get_drop_row(board, col)
-        if row < 0:
-            return phi
-
-        test_board = board.copy()
-        test_board[row, col] = player
-
-        if self._check_winner(test_board) == player:
-            phi[0] = 1.0
-            phi[7] = 1.0
-            return phi
-
-        opponent = -player
-
-        opp_board = board.copy()
-        opp_board[row, col] = opponent
-        if self._check_winner(opp_board) == opponent:
-            phi[1] = 1.0
-
-        phi[2] = (COLS - 1 - abs(col - CENTER_COL)) / CENTER_COL
-
-        phi[3] = self._count_threats(test_board, player) / 10.0
-
-        base_opp_threats = self._count_threats(board, opponent)
-        new_opp_threats = self._count_threats(test_board, opponent)
-        phi[4] = max(0, base_opp_threats - new_opp_threats) / 10.0
-
-        phi[5] = self._count_two_in_row(test_board, player) / 20.0
-
-        bottom_row = board[ROWS - 1, :]
-        phi[6] = np.sum(bottom_row == player) / COLS
-
-        phi[7] = 1.0
-
-        return phi
-
-    def _count_threats(self, board: np.ndarray, player: int) -> int:
-        """Ventanas de 4 con exactamente 3 fichas del jugador y 1 libre."""
-        count = 0
-        for r in range(ROWS):
-            for c in range(COLS - 3):
-                window = board[r, c:c+4]
-                if np.sum(window == player) == 3 and np.sum(window == 0) == 1:
-                    count += 1
-        for c in range(COLS):
-            for r in range(ROWS - 3):
-                window = board[r:r+4, c]
-                if np.sum(window == player) == 3 and np.sum(window == 0) == 1:
-                    count += 1
-        for r in range(ROWS - 3):
-            for c in range(COLS - 3):
-                window = [board[r+i, c+i] for i in range(4)]
-                if window.count(player) == 3 and window.count(0) == 1:
-                    count += 1
-        for r in range(ROWS - 3):
-            for c in range(3, COLS):
-                window = [board[r+i, c-i] for i in range(4)]
-                if window.count(player) == 3 and window.count(0) == 1:
-                    count += 1
-        return count
-
-    def _count_two_in_row(self, board: np.ndarray, player: int) -> int:
-        """Ventanas de 4 con exactamente 2 fichas del jugador y 2 libres."""
-        count = 0
-        for r in range(ROWS):
-            for c in range(COLS - 3):
-                window = board[r, c:c+4]
-                if np.sum(window == player) == 2 and np.sum(window == 0) == 2:
-                    count += 1
-        for c in range(COLS):
-            for r in range(ROWS - 3):
-                window = board[r:r+4, c]
-                if np.sum(window == player) == 2 and np.sum(window == 0) == 2:
-                    count += 1
-        return count
+            new_board = self._apply_move(board, col, player)
+            phi = self._board_features(new_board, player)
+            q_current = float(np.dot(self.weights, phi))
+            self.weights += self.alpha * (r - q_current) * phi
+            r = -self.gamma * r   # truco bipolar
 
     # ------------------------------------------------------------------ #
     #  UTILIDADES
@@ -259,12 +325,14 @@ class QLearningAgent(Policy):
                 p = board[r, c]
                 if p == 0:
                     continue
-                if c + 3 < COLS and all(board[r, c+i] == p for i in range(4)):
+                if c+3 < COLS and board[r,c+1]==p and board[r,c+2]==p and board[r,c+3]==p:
                     return p
-                if r + 3 < ROWS and all(board[r+i, c] == p for i in range(4)):
+                if r+3 < ROWS and board[r+1,c]==p and board[r+2,c]==p and board[r+3,c]==p:
                     return p
-                if r + 3 < ROWS and c + 3 < COLS and all(board[r+i, c+i] == p for i in range(4)):
+                if r+3 < ROWS and c+3 < COLS \
+                        and board[r+1,c+1]==p and board[r+2,c+2]==p and board[r+3,c+3]==p:
                     return p
-                if r + 3 < ROWS and c - 3 >= 0 and all(board[r+i, c-i] == p for i in range(4)):
+                if r+3 < ROWS and c-3 >= 0 \
+                        and board[r+1,c-1]==p and board[r+2,c-2]==p and board[r+3,c-3]==p:
                     return p
         return 0
