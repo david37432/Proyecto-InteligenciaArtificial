@@ -67,6 +67,9 @@ def mount(self, *args, **kwargs) -> None:
 # ------------------------------------------------------------------ #
 
 def act(self, s: np.ndarray) -> int:
+    if self.weights is None:
+        self.mount()
+
     free = [c for c in range(COLS) if s[0, c] == 0]
     if not free:
         return CENTER_COL
