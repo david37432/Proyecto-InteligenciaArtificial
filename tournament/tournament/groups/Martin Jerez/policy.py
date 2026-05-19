@@ -28,7 +28,7 @@ class QLearningAgent(Policy):
                  gamma: float = 1.0,
                  epsilon: float = 0.3,
                  epsilon_end: float = 0.05,
-                 n_episodes: int = 5000,
+                 n_episodes: int = 2000,
                  search_depth: int = 4):
         self.player = player
         self.alpha = alpha
@@ -37,9 +37,11 @@ class QLearningAgent(Policy):
         self.epsilon_end = epsilon_end
         self.n_episodes = n_episodes
         self.search_depth = search_depth
-        self.weights = None
+        self.weights = None  # None = no entrenado aun
 
     def mount(self, *args, **kwargs) -> None:
+        if self.weights is not None:
+            return  # ya entrenado, no reentrenar
         self.weights = np.zeros(N_FEATURES)
         self._train()
 
