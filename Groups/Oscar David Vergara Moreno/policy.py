@@ -40,7 +40,7 @@ class MCTSNode:
         self.children.append(child)
         return child
     
-class MCTSAgentOscarQ(Policy):
+class MCTSWithQBiasAgent(Policy):
 
     def __init__(self, num_simulations: int = 600,
                  c_param: float = math.sqrt(2),
