@@ -8,13 +8,13 @@ Este directorio contiene la implementación de un agente inteligente basado en *
 
 ##  Contenido
 
-- `policy.py` – Implementación completa del agente (clase `Aha` y `MCTSAgentHeuristic`).
+- `policy.py` – Implementación completa del agente (clase `MCTSHeuristicAgent` y `MCTSAgentHeuristic`).
 - `entrega.ipynb` – Notebook con todos los experimentos, gráficas y análisis (criterios 2 y 3 de la rúbrica).
 - `README.md` – Este archivo.
 
 ## 🧠 Código completo del agente
 
-El agente se encuentra en `policy.py`. La clase principal es `Aha`, que envuelve a `MCTSAgentHeuristic`. El código está optimizado con NumPy y utiliza una heurística de simulación en tres niveles:
+El agente se encuentra en `policy.py`. La clase principal es `MCTSHeuristicAgent`, que envuelve a `MCTSAgentHeuristic`. El código está optimizado con NumPy y utiliza una heurística de simulación en tres niveles:
 
 1. **Ganar inmediatamente** – Si existe un movimiento que conecta 4 fichas, se elige.
 2. **Bloquear al oponente** – Si el oponente amenaza con ganar en su siguiente turno, se bloquea.
