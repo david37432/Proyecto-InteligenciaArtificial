@@ -3,7 +3,7 @@
 - **Asignatura:** Fundamentos de Inteligencia Artificial (2026-1)
 - **Universidad:** Universidad de La Sabana
 - **Estudiante:** Oscar David Vergara Moreno
-- **Agente Evaluado:** `MCTSAgentOscarQ` (MCTS con Sesgo de Recompensa Q-Value)
+- **Agente Evaluado:** `MCTSWithQBiasAgent` (MCTS con Sesgo de Recompensa Q-Value)
 
 ---
 
@@ -80,17 +80,17 @@ Para analizar el agente como un sistema dinámico (tal como lo pide la guía del
 
 En este experimento medimos cómo le va a nuestro agente contra el oponente aleatorio usando un torneo balanceado de **16 partidas** (8 jugando de Rojo y 8 de Amarillo). Para que la gráfica mostrara el comportamiento real del MCTS sin "ayudas" externas, desactivamos temporalmente las funciones de bloqueo y victoria inmediata de un solo paso:
 
-- **Bajo Cómputo (10 simulaciones):** El MCTS Puro (Baseline) se queda corto y saca una tasa de victorias del **87.5%**. Esto pasa porque con tan poquitas simulaciones el árbol comete errores ciegos y el aleatorio le logra ganar un par de partidas. En cambio, mi versión **MCTS + Sesgo Q-Value mantiene un 100.0% perfecto**. Esto demuestra que la heurística en la fórmula de selección guía al agente a jugar de forma lógica desde el principio, compensando la falta de tiempo.
+- **Bajo Cómputo (10 simulaciones):** El MCTS Puro (Baseline) se queda corto y saca una tasa de victorias del **62.5%**. Esto pasa porque con tan poquitas simulaciones el árbol comete errores ciegos y el aleatorio le logra ganar un par de partidas. En cambio, mi versión **MCTS + Sesgo Q-Value mantiene un 100.0% perfecto**. Esto demuestra que la heurística en la fórmula de selección guía al agente a jugar de forma lógica desde el principio, compensando la falta de tiempo.
 - **Alto Cómputo (30 y 70 simulaciones):** Aquí ambas versiones alcanzan el **100.0%** de victorias. El resultado es lógico porque, si le damos más presupuesto de tiempo al MCTS tradicional, la fuerza bruta estadística del árbol puro termina encontrando las jugadas correctas e iguala la ventaja táctica que mi agente tenía desde el inicio.
 
 ### Experimento 2: Auto-Juego (Enfrentamiento Directo)
 
-Para evaluar qué tanto aporta mi diseño cuando los recursos son muy limitados, pusimos a pelear a `MCTSAgentOscarQ` contra el MCTS Puro (Baseline). Configuré un presupuesto fijo de apenas **50 simulaciones por turno** para cada uno y los pusimos a jugar cara a cara.
+Para evaluar qué tanto aporta mi diseño cuando los recursos son muy limitados, pusimos a pelear a `MCTSWithQBiasAgent` contra el MCTS Puro (Baseline). Configuré un presupuesto fijo de apenas **50 simulaciones por turno** para cada uno y los pusimos a jugar cara a cara.
 
 Los resultados de las partidas fueron contundentes:
 
-- **Victorias MCTS + Sesgo Q-Value:** **83.3%** (5 partidas ganadas).
-- **Victorias MCTS Puro (Baseline):** 16.7% (1 partida ganada).
+- **Victorias MCTS + Sesgo Q-Value:** **66.7%** (4 partidas ganadas).
+- **Victorias MCTS Puro (Baseline):** 33.3% (2 partida ganada).
 - **Empates:** 0.0%.
 
 **Análisis para la Sustentación:** Este resultado es clave porque demuestra que mi agente aprovecha mucho mejor el procesador. Con solo 50 simulaciones por turno, el MCTS Puro no alcanza a llenar el árbol y toma decisiones casi a la suerte en las primeras jugadas. Mi algoritmo usa el sesgo como un filtro: cuando un nodo casi no se ha visitado, la heurística obliga al árbol a concentrar esas 50 simulaciones solo en las columnas buenas (como el centro o los bloqueos) en vez de perder tiempo explorando jugadas absurdas. Por eso termina acorralando al modelo base en la mayoría de partidas.
@@ -117,7 +117,7 @@ Proyecto-InteligenciaArtificial/
 │   └── connect_state.py          # Reglas del juego y cálculo de gravedad
 └── Groups/
     └── Oscar David Vergara Moreno/
-        ├── policy.py             # MI CÓDIGO (Contiene MCTSAgentOscarQ)
+        ├── policy.py             # MI CÓDIGO (Contiene MCTSWithQBiasAgent)
         ├── entrega.ipynb         # Mi notebook con los experimentos
         └── README.md             # Este documento
 ```
