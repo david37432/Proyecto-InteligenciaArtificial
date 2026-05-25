@@ -207,7 +207,7 @@ class MCTSAgentHeuristic:
         return 1.0 if winner == perspective_player else 0.0
 
 
-class Aha(Policy):
+class MCTSHeuristicAgent(Policy):
     def __init__(self, player: int = -1, num_simulations: int = 600):
         super().__init__()
         self.player = player
